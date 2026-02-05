@@ -299,5 +299,9 @@ def word_detail(wid):
         conn.close()
         return jsonify({'status': 'deleted'})
 
+@app.route('/admin')
+def admin():
+    return send_file('admin.html')
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

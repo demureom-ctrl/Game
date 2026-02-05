@@ -304,34 +304,7 @@
                 return () => clearInterval(timer);
             }, [gameState]);
 
-            // Sensor Logic
-            useEffect(() => {
-                if (gameState !== 'PLAYING') return;
-
-                const handleOrientation = (event) => {
-                    const now = Date.now();
-                    if (now - lastActionTime.current < 1000) return; // Debounce
-
-                    const { beta } = event; // Front/Back tilt
-
-                    if (beta > 110) { // Screen facing down
-                        if (tiltStatus !== 'correct') {
-                            setTiltStatus('correct');
-                            handleAction('correct');
-                        }
-                    } else if (beta < 50 && beta > 0) { // Screen facing up/forehead
-                        if (tiltStatus !== 'pass') {
-                            setTiltStatus('pass');
-                            handleAction('pass');
-                        }
-                    } else {
-                        setTiltStatus('neutral');
-                    }
-                };
-
-                window.addEventListener('deviceorientation', handleOrientation);
-                return () => window.removeEventListener('deviceorientation', handleOrientation);
-            }, [gameState, tiltStatus]);
+            // Sensor Logic REMOVED
 
             // Keyboard Fallback
             useEffect(() => {
@@ -352,20 +325,12 @@
                 setCurrentWordIndex(0);
                 setTimeLeft(60);
                 setCountdown(3);
-
-                // Permission request logic remains...
-                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    DeviceOrientationEvent.requestPermission()
-                        .then(response => { if (response === 'granted') setGameState('READY'); else { alert('Please allow motion access'); setGameState('READY'); } })
-                        .catch(console.error);
-                } else {
-                    setGameState('READY');
-                }
+                setGameState('READY');
             };
 
             const handleAction = (status) => {
                 const now = Date.now();
-                if (now - lastActionTime.current < 800) return; // Extra safety debounce
+                if (now - lastActionTime.current < 500) return; // Debounce
                 lastActionTime.current = now;
 
                 if (status === 'correct') {
@@ -378,16 +343,13 @@
                 const currentWord = shuffledWords[currentWordIndex];
                 setResults(prev => [...prev, { word: currentWord, status }]);
 
-                // Smooth transition delay
-                setTimeout(() => {
-                    if (currentWordIndex + 1 < shuffledWords.length) {
-                        setCurrentWordIndex(prev => prev + 1);
-                    } else {
-                        setShuffledWords(shuffle(selectedCategory.words));
-                        setCurrentWordIndex(0);
-                    }
-                    setTiltStatus('neutral');
-                }, 300);
+                // Immediate transition
+                if (currentWordIndex + 1 < shuffledWords.length) {
+                    setCurrentWordIndex(prev => prev + 1);
+                } else {
+                    setShuffledWords(shuffle(selectedCategory.words));
+                    setCurrentWordIndex(0);
+                }
             };
 
             // -- Renders --
@@ -402,7 +364,7 @@
                         <header className="text-center py-10 relative z-10">
                             <button onClick={onExit} className="absolute top-4 right-4 bg-white/10 hover:bg-white/20 p-3 rounded-full backdrop-blur-md transition-all"><HomeIcon className="text-white" /></button>
                             <h1 className="text-6xl md:text-7xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500 drop-shadow-sm tracking-tight">أيش الكلمة؟</h1>
-                            <p className="text-slate-300 text-xl font-medium">ضع الجوال على جبهتك وتحدى أصحابك!</p>
+                            <p className="text-slate-300 text-xl font-medium">اشرح الكلمة لفريقك وخلهم يحزرون!</p>
                         </header>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20 max-w-5xl mx-auto relative z-10 px-4">
@@ -430,11 +392,11 @@
                                     <Smartphone className="w-8 h-8 text-white" />
                                 </div>
                                 <div className="text-right">
-                                    <h4 className="text-white font-bold text-lg mb-1">طريقة اللعب السريعة:</h4>
+                                    <h4 className="text-white font-bold text-lg mb-1">طريقة اللعب:</h4>
                                     <p className="text-slate-300 text-sm leading-relaxed">
-                                        1. ضع الجوال على جبهتك <br />
-                                        2. أمل الجوال <span className="text-green-400 font-bold">للأسفل</span> (✅) للإجابة الصحيحة <br />
-                                        3. أمل الجوال <span className="text-red-400 font-bold">للأعلى</span> (🔄) للتخطي
+                                        1. امسك الجوال واشرح الكلمة لفريقك <br />
+                                        2. إذا جاوبوا صح اضغط <span className="text-green-400 font-bold">صح عليك</span> <br />
+                                        3. إذا ما عرفوا اضغط <span className="text-red-400 font-bold">تخطي</span>
                                     </p>
                                 </div>
                             </div>
@@ -454,7 +416,7 @@
                             </div>
                             <div className="mt-16 bg-white/10 backdrop-blur-md px-8 py-4 rounded-full border border-white/20 animate-pulse">
                                 <p className="text-2xl font-bold flex items-center gap-3">
-                                    <Smartphone className="w-8 h-8" /> ضع الجوال على جبهتك
+                                    <Smartphone className="w-8 h-8" /> جهز حالك للشرح!
                                 </p>
                             </div>
                         </div>
@@ -465,9 +427,6 @@
             if (gameState === 'PLAYING') {
                 return (
                     <div className={`h-screen flex flex-col items-center justify-center transition-all duration-500 ${selectedCategory.color} text-white relative no-select overflow-hidden`}>
-                        {/* Status Overlay for Tilt Feedback */}
-                        {tiltStatus === 'correct' && <div className="absolute inset-0 bg-green-500 z-20 flex items-center justify-center animate-fade-in"><div className="text-center"><Check className="w-48 h-48 mx-auto mb-4 text-white drop-shadow-lg" /><h2 className="text-6xl font-black">صح عليك!</h2></div></div>}
-                        {tiltStatus === 'pass' && <div className="absolute inset-0 bg-orange-500 z-20 flex items-center justify-center animate-fade-in"><div className="text-center"><RotateCcw className="w-48 h-48 mx-auto mb-4 text-white drop-shadow-lg" /><h2 className="text-6xl font-black">طوف..</h2></div></div>}
 
                         {/* Top Bar */}
                         <div className="absolute top-0 w-full p-8 flex justify-between items-center z-10">
@@ -484,7 +443,7 @@
                         </div>
 
                         {/* Main Card */}
-                        <div className="relative z-0 w-full max-w-4xl px-8 flex-1 flex flex-col items-center justify-center">
+                        <div className="relative z-0 w-full max-w-4xl px-8 flex-1 flex flex-col items-center justify-center mb-24">
                             <div key={currentWordIndex} className="animate-zoom-in text-center">
                                 <p className="text-white/60 font-bold text-xl mb-4 tracking-widest">{selectedCategory.title}</p>
                                 <h1 className="text-8xl md:text-[10rem] font-black leading-tight drop-shadow-2xl break-words transform transition-transform duration-300 hover:scale-105">
@@ -493,16 +452,16 @@
                             </div>
                         </div>
 
-                        {/* Touch Areas (Manual Controls) */}
-                        <div className="absolute inset-0 z-0 flex flex-col opacity-0">
-                            <button onClick={() => handleAction('pass')} className="flex-1 w-full bg-red-500/20 active:opacity-100 transition-opacity"></button> {/* Top for Pass */}
-                            <button onClick={() => handleAction('correct')} className="flex-1 w-full bg-green-500/20 active:opacity-100 transition-opacity"></button> {/* Bottom for Correct */}
-                        </div>
-
-                        {/* Visual Helper for Touch */}
-                        <div className="absolute bottom-8 flex gap-32 opacity-40 pointer-events-none">
-                            <div className="text-center"><div className="w-16 h-1 bg-white/50 rounded-full mb-2 mx-auto"></div><span className="text-sm font-bold">صحيح (لمس تحت)</span></div>
-                            <div className="text-center"><span className="text-sm font-bold">تخطي (لمس فوق)</span><div className="w-16 h-1 bg-white/50 rounded-full mt-2 mx-auto"></div></div>
+                        {/* Control Buttons */}
+                        <div className="absolute bottom-0 w-full p-6 flex gap-4 z-20">
+                            <button onClick={() => handleAction('pass')} className="flex-1 bg-white/10 hover:bg-red-500/20 active:bg-red-500/40 backdrop-blur-md border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-2 transition-all">
+                                <RotateCcw className="w-12 h-12 text-red-200" />
+                                <span className="text-2xl font-black text-red-100">تخطي</span>
+                            </button>
+                            <button onClick={() => handleAction('correct')} className="flex-1 bg-white/10 hover:bg-green-500/20 active:bg-green-500/40 backdrop-blur-md border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-2 transition-all">
+                                <Check className="w-12 h-12 text-green-200" />
+                                <span className="text-2xl font-black text-green-100">صح عليك!</span>
+                            </button>
                         </div>
                     </div>
                 );
@@ -1140,7 +1099,46 @@
 
         // --- ADMIN PANEL COMPONENT ---
         const AdminPanel = ({ onExit }) => {
-            const [activeTab, setActiveTab] = useState('quiz'); // quiz, proverbs, words
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [pinInput, setPinInput] = useState('');
+            const [error, setError] = useState(false);
+            const [activeTab, setActiveTab] = useState('quiz');
+
+            if (!isAuthenticated) {
+                return (
+                    <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4 animate-fade-in font-sans" dir="rtl">
+                        <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-2 bg-indigo-600"></div>
+                            <button onClick={onExit} className="absolute top-4 left-4 text-gray-400 hover:text-gray-600"><X /></button>
+
+                            <div className="mb-6">
+                                <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4"><Lock size={32} /></div>
+                                <h2 className="text-2xl font-black text-slate-800">منطقة للمشرفين</h2>
+                                <p className="text-slate-500 font-medium">أدخل الرمز السري للمتابعة</p>
+                            </div>
+
+                            <input
+                                type="password"
+                                value={pinInput}
+                                onChange={(e) => { setPinInput(e.target.value); setError(false); }}
+                                className="w-full text-center text-3xl font-black tracking-[0.5em] p-4 bg-gray-50 border-2 border-gray-200 rounded-2xl mb-4 focus:border-indigo-500 focus:outline-none transition-colors"
+                                maxLength={4}
+                                placeholder="••••"
+                                autoFocus
+                            />
+
+                            <button
+                                onClick={() => { if (pinInput === '1328') setIsAuthenticated(true); else { setError(true); setPinInput(''); } }}
+                                className="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 text-lg"
+                            >
+                                دخول
+                            </button>
+
+                            {error && <p className="text-red-500 font-bold mt-4 animate-shake">الرمز خطأ ⛔</p>}
+                        </div>
+                    </div>
+                );
+            }
 
             return (
                 <div className="max-w-7xl mx-auto p-6 bg-gray-50 min-h-screen animate-fade-in font-sans">
