@@ -1,0 +1,1448 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ألعاب المسابقات - المنصة الموحدة</title>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <!-- Custom Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            touch-action: manipulation;
+        }
+
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .animate-zoom-in {
+            animation: zoomIn 0.3s ease-out;
+        }
+
+        .animate-fade-in-up {
+            animation: fadeInUp 0.5s ease-out;
+        }
+
+        .animate-bounce-slow {
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        @keyframes zoomIn {
+            from {
+                transform: scale(0.9);
+                opacity: 0;
+            }
+
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes bounce {
+
+            0%,
+            100% {
+                transform: translateY(-5%);
+            }
+
+            50% {
+                transform: translateY(0);
+            }
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 20px;
+        }
+
+        /* Disable selection for game feel */
+        .no-select {
+            user-select: none;
+            -webkit-user-select: none;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+    <div id="root" class="h-full w-full"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect, useRef } = React;
+
+        // --- Shared Utilities ---
+        class SoundManager {
+            constructor() {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            playTone(freq, type, duration) {
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + duration);
+            }
+            playClick() { this.playTone(600, 'sine', 0.1); }
+            playSelect() { this.playTone(800, 'triangle', 0.05); }
+            playCorrect() {
+                this.playTone(600, 'sine', 0.1);
+                setTimeout(() => this.playTone(1200, 'sine', 0.3), 100);
+            }
+            playWrong() {
+                this.playTone(150, 'sawtooth', 0.4);
+                setTimeout(() => this.playTone(100, 'sawtooth', 0.4), 200);
+            }
+            playWin() {
+                [400, 500, 600, 800].forEach((f, i) => setTimeout(() => this.playTone(f, 'square', 0.2), i * 150));
+            }
+            playTimerTick() { this.playTone(800, 'sine', 0.05); }
+        }
+        const sounds = new SoundManager();
+
+        // --- Icons ---
+        const Icon = ({ children, className, ...props }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>{children}</svg>
+        );
+        // Common Icons
+        const Trophy = (p) => <Icon {...p}><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" /><path d="M4 22h16" /><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" /><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" /></Icon>;
+        const Play = (p) => <Icon {...p}><polygon points="5 3 19 12 5 21 5 3" /></Icon>;
+        const HomeIcon = (p) => <Icon {...p}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></Icon>;
+        const ArrowRight = (p) => <Icon {...p}><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></Icon>;
+        const RotateCcw = (p) => <Icon {...p}><path d="M3 12a9 9 0 1 0 9-9 9.75 9 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></Icon>;
+        const Check = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12" /></Icon>;
+        const X = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>;
+        const Database = (p) => <Icon {...p}><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" /></Icon>;
+        const Settings = (p) => <Icon {...p}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.39a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></Icon>;
+        const Smartphone = (p) => <Icon {...p}><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></Icon>;
+        const Edit = (p) => <Icon {...p}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></Icon>;
+        const Trash = (p) => <Icon {...p}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></Icon>;
+        const Info = (p) => <Icon {...p}><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></Icon>;
+        // Memory Game Icons
+        const Dices = (p) => <Icon {...p}><rect width="12" height="12" x="2" y="10" rx="2" ry="2" /><path d="m17.92 14 3.5-3.5a2.18 2.18 0 0 0 .11-3.08l-3.38-3.38a2.18 2.18 0 0 0-3.08-.11l-3.5 3.5" /><path d="M6 14h.01" /><path d="M10 18h.01" /><path d="M6 18h.01" /><path d="M10 14h.01" /><path d="M15 6h.01" /><path d="M18 9h.01" /></Icon>;
+        const Box = (p) => <Icon {...p}><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22v-9" /></Icon>;
+        const Users = (p) => <Icon {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></Icon>;
+
+        // --- COUNTDOWN TIMER COMPONENT ---
+        const CountdownTimer = ({ duration, onComplete, isRunning }) => {
+            const [timeLeft, setTimeLeft] = useState(duration);
+
+            useEffect(() => {
+                if (!isRunning) return;
+                if (timeLeft <= 0) {
+                    onComplete();
+                    return;
+                }
+                const timer = setInterval(() => {
+                    setTimeLeft(prev => {
+                        const newVal = prev - 1;
+                        if (newVal <= 10 && newVal > 0) sounds.playTimerTick(); // Tick tock
+                        return newVal;
+                    });
+                }, 1000);
+                return () => clearInterval(timer);
+            }, [timeLeft, isRunning]);
+
+            const percentage = (timeLeft / duration) * 100;
+            const strokeDashoffset = 283 - (283 * percentage) / 100; // 2 * pi * 45 ≈ 283
+
+            return (
+                <div className="relative w-24 h-24 flex items-center justify-center">
+                    <svg className="w-full h-full transform -rotate-90">
+                        <circle cx="48" cy="48" r="45" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-slate-200" />
+                        <circle cx="48" cy="48" r="45" stroke="currentColor" strokeWidth="8" fill="transparent"
+                            strokeDasharray="283" strokeDashoffset={strokeDashoffset} strokeLinecap="round"
+                            className={`transition-all duration-1000 linear ${timeLeft <= 10 ? 'text-red-500' : 'text-indigo-500'}`} />
+                    </svg>
+                    <span className={`absolute text-2xl font-black ${timeLeft <= 10 ? 'text-red-600 animate-pulse' : 'text-slate-700'}`}>{timeLeft}</span>
+                </div>
+            );
+        };
+
+        // --- HEADS UP GAME COMPONENT ---
+        const HeadsUpGame = ({ onExit }) => {
+            const [gameState, setGameState] = useState('MENU'); // MENU, READY, PLAYING, RESULTS
+            const [categories, setCategories] = useState([]);
+            const [selectedCategory, setSelectedCategory] = useState(null);
+
+            // Fetch words and build categories dynamically
+            useEffect(() => {
+                fetch('/api/words').then(r => r.json()).then(data => {
+                    const groups = {};
+                    data.forEach(w => { if (!groups[w.category]) groups[w.category] = []; groups[w.category].push(w.content); });
+
+                    const colorPalette = [
+                        'from-purple-500 to-indigo-600',
+                        'from-orange-400 to-red-500',
+                        'from-blue-500 to-cyan-600',
+                        'from-pink-500 to-rose-600',
+                        'from-emerald-500 to-teal-600',
+                        'from-amber-400 to-orange-500',
+                        'from-violet-500 to-fuchsia-600',
+                        'from-lime-500 to-green-600'
+                    ];
+
+                    const icons = {
+                        'أفلام ومسلسلات': '🎬',
+                        'أفعال وتمثيل': '🎭',
+                        'مشاهير وشخصيات': '👤',
+                        'أكلات وحلويات': '🍕',
+                        'حيوانات': '🦁',
+                        'دول وعواصم': '🌍',
+                        'ماركات وشعارات': '🏷️',
+                        'وظائف ومهن': '👨‍⚕️',
+                        'أشياء في البيت': '🏠'
+                    };
+
+                    const newCats = Object.keys(groups).map((k, i) => ({
+                        id: `cat_${i}`,
+                        title: k,
+                        icon: icons[k] || '✨',
+                        color: `bg-gradient-to-br ${colorPalette[i % colorPalette.length]}`,
+                        words: groups[k]
+                    }));
+                    setCategories(newCats);
+                }).catch(e => console.error(e));
+            }, []);
+
+            const [shuffledWords, setShuffledWords] = useState([]);
+            const [currentWordIndex, setCurrentWordIndex] = useState(0);
+            const [score, setScore] = useState(0);
+            const [timeLeft, setTimeLeft] = useState(60);
+            const [countdown, setCountdown] = useState(3);
+            const [results, setResults] = useState([]);
+            const lastActionTime = useRef(0);
+            const [tiltStatus, setTiltStatus] = useState('neutral'); // neutral, correct, pass
+
+            const shuffle = (array) => [...array].sort(() => Math.random() - 0.5);
+
+            // Game Timer
+            useEffect(() => {
+                let timer;
+                if (gameState === 'PLAYING') {
+                    timer = setInterval(() => {
+                        setTimeLeft(prev => {
+                            if (prev <= 1) {
+                                setGameState('RESULTS');
+                                sounds.playWin();
+                                return 0;
+                            }
+                            if (prev <= 11) sounds.playTimerTick();
+                            return prev - 1;
+                        });
+                    }, 1000);
+                }
+                return () => clearInterval(timer);
+            }, [gameState]);
+
+            // Countdown Timer
+            useEffect(() => {
+                let timer;
+                if (gameState === 'READY') {
+                    timer = setInterval(() => {
+                        setCountdown(prev => {
+                            if (prev <= 1) {
+                                setGameState('PLAYING');
+                                return 0;
+                            }
+                            return prev - 1;
+                        });
+                    }, 1000);
+                }
+                return () => clearInterval(timer);
+            }, [gameState]);
+
+            // Sensor Logic
+            useEffect(() => {
+                if (gameState !== 'PLAYING') return;
+
+                const handleOrientation = (event) => {
+                    const now = Date.now();
+                    if (now - lastActionTime.current < 1000) return; // Debounce
+
+                    const { beta } = event; // Front/Back tilt
+
+                    if (beta > 110) { // Screen facing down
+                        if (tiltStatus !== 'correct') {
+                            setTiltStatus('correct');
+                            handleAction('correct');
+                        }
+                    } else if (beta < 50 && beta > 0) { // Screen facing up/forehead
+                        if (tiltStatus !== 'pass') {
+                            setTiltStatus('pass');
+                            handleAction('pass');
+                        }
+                    } else {
+                        setTiltStatus('neutral');
+                    }
+                };
+
+                window.addEventListener('deviceorientation', handleOrientation);
+                return () => window.removeEventListener('deviceorientation', handleOrientation);
+            }, [gameState, tiltStatus]);
+
+            // Keyboard Fallback
+            useEffect(() => {
+                const handleKey = (e) => {
+                    if (gameState !== 'PLAYING') return;
+                    if (e.key === 'ArrowDown') handleAction('correct');
+                    if (e.key === 'ArrowUp') handleAction('pass');
+                };
+                window.addEventListener('keydown', handleKey);
+                return () => window.removeEventListener('keydown', handleKey);
+            }, [gameState]);
+
+            const startGame = (cat) => {
+                setSelectedCategory(cat);
+                setShuffledWords(shuffle(cat.words));
+                setScore(0);
+                setResults([]);
+                setCurrentWordIndex(0);
+                setTimeLeft(60);
+                setCountdown(3);
+
+                // Permission request logic remains...
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    DeviceOrientationEvent.requestPermission()
+                        .then(response => { if (response === 'granted') setGameState('READY'); else { alert('Please allow motion access'); setGameState('READY'); } })
+                        .catch(console.error);
+                } else {
+                    setGameState('READY');
+                }
+            };
+
+            const handleAction = (status) => {
+                const now = Date.now();
+                if (now - lastActionTime.current < 800) return; // Extra safety debounce
+                lastActionTime.current = now;
+
+                if (status === 'correct') {
+                    setScore(prev => prev + 1);
+                    sounds.playCorrect();
+                } else {
+                    sounds.playWrong();
+                }
+
+                const currentWord = shuffledWords[currentWordIndex];
+                setResults(prev => [...prev, { word: currentWord, status }]);
+
+                // Smooth transition delay
+                setTimeout(() => {
+                    if (currentWordIndex + 1 < shuffledWords.length) {
+                        setCurrentWordIndex(prev => prev + 1);
+                    } else {
+                        setShuffledWords(shuffle(selectedCategory.words));
+                        setCurrentWordIndex(0);
+                    }
+                    setTiltStatus('neutral');
+                }, 300);
+            };
+
+            // -- Renders --
+            if (gameState === 'MENU') {
+                return (
+                    <div className="bg-slate-900 min-h-screen text-white p-6 relative overflow-hidden font-sans">
+                        {/* Dynamic Background */}
+                        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 animate-pulse"></div>
+                        <div className="absolute top-[-10%] left-[-10%] w-64 h-64 bg-purple-600 rounded-full blur-[100px] opacity-30"></div>
+                        <div className="absolute bottom-[-10%] right-[-10%] w-64 h-64 bg-blue-600 rounded-full blur-[100px] opacity-30"></div>
+
+                        <header className="text-center py-10 relative z-10">
+                            <button onClick={onExit} className="absolute top-4 right-4 bg-white/10 hover:bg-white/20 p-3 rounded-full backdrop-blur-md transition-all"><HomeIcon className="text-white" /></button>
+                            <h1 className="text-6xl md:text-7xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500 drop-shadow-sm tracking-tight">أيش الكلمة؟</h1>
+                            <p className="text-slate-300 text-xl font-medium">ضع الجوال على جبهتك وتحدى أصحابك!</p>
+                        </header>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20 max-w-5xl mx-auto relative z-10 px-4">
+                            {categories.map(cat => (
+                                <button key={cat.id} onClick={() => startGame(cat)} className={`relative group overflow-hidden rounded-[2rem] p-8 text-right shadow-2xl transition-all hover:-translate-y-2 hover:shadow-orange-500/20 ${cat.color || 'bg-slate-800'}`}>
+                                    <div className="absolute inset-0 bg-black/10 group-hover:bg-transparent transition-colors"></div>
+                                    <div className="relative z-10 flex flex-col items-start gap-4">
+                                        <span className="text-6xl filter drop-shadow-md group-hover:scale-110 transition-transform duration-300">{cat.icon}</span>
+                                        <div>
+                                            <h3 className="text-3xl font-black text-white mb-1 leading-tight">{cat.title}</h3>
+                                            <p className="text-white/80 text-sm font-bold">{cat.words?.length || 0} كلمة</p>
+                                        </div>
+                                    </div>
+                                    <div className="absolute bottom-4 left-4 bg-white/20 p-3 rounded-full backdrop-blur-sm group-hover:scale-110 transition-transform">
+                                        <Play className="text-white fill-white rotate-180 w-6 h-6" />
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* How to play card */}
+                        <div className="fixed bottom-0 left-0 w-full p-4 z-20 pointer-events-none">
+                            <div className="bg-slate-800/90 backdrop-blur-xl p-6 rounded-[2rem] border border-white/10 flex items-center justify-center gap-6 max-w-2xl mx-auto shadow-2xl pointer-events-auto transform transition-transform hover:scale-105">
+                                <div className="p-4 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-2xl shadow-lg shrink-0">
+                                    <Smartphone className="w-8 h-8 text-white" />
+                                </div>
+                                <div className="text-right">
+                                    <h4 className="text-white font-bold text-lg mb-1">طريقة اللعب السريعة:</h4>
+                                    <p className="text-slate-300 text-sm leading-relaxed">
+                                        1. ضع الجوال على جبهتك <br />
+                                        2. أمل الجوال <span className="text-green-400 font-bold">للأسفل</span> (✅) للإجابة الصحيحة <br />
+                                        3. أمل الجوال <span className="text-red-400 font-bold">للأعلى</span> (🔄) للتخطي
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (gameState === 'READY') {
+                return (
+                    <div className={`h-screen flex flex-col items-center justify-center text-center text-white no-select ${selectedCategory.color} relative overflow-hidden`}>
+                        <div className="absolute inset-0 bg-black/20 backdrop-blur-3xl"></div>
+                        <div className="relative z-10 flex flex-col items-center">
+                            <h2 className="text-4xl mb-12 font-bold text-white/80 tracking-widest uppercase">استعد</h2>
+                            <div className="text-[12rem] font-black text-white animate-bounce-slow drop-shadow-2xl leading-none">
+                                {countdown === 0 ? "غو!" : countdown}
+                            </div>
+                            <div className="mt-16 bg-white/10 backdrop-blur-md px-8 py-4 rounded-full border border-white/20 animate-pulse">
+                                <p className="text-2xl font-bold flex items-center gap-3">
+                                    <Smartphone className="w-8 h-8" /> ضع الجوال على جبهتك
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (gameState === 'PLAYING') {
+                return (
+                    <div className={`h-screen flex flex-col items-center justify-center transition-all duration-500 ${selectedCategory.color} text-white relative no-select overflow-hidden`}>
+                        {/* Status Overlay for Tilt Feedback */}
+                        {tiltStatus === 'correct' && <div className="absolute inset-0 bg-green-500 z-20 flex items-center justify-center animate-fade-in"><div className="text-center"><Check className="w-48 h-48 mx-auto mb-4 text-white drop-shadow-lg" /><h2 className="text-6xl font-black">صح عليك!</h2></div></div>}
+                        {tiltStatus === 'pass' && <div className="absolute inset-0 bg-orange-500 z-20 flex items-center justify-center animate-fade-in"><div className="text-center"><RotateCcw className="w-48 h-48 mx-auto mb-4 text-white drop-shadow-lg" /><h2 className="text-6xl font-black">طوف..</h2></div></div>}
+
+                        {/* Top Bar */}
+                        <div className="absolute top-0 w-full p-8 flex justify-between items-center z-10">
+                            <div className="relative w-20 h-20 flex items-center justify-center bg-white/10 backdrop-blur-md rounded-full shadow-lg border border-white/20">
+                                <span className={`text-3xl font-black font-mono ${timeLeft <= 10 ? 'text-red-300 animate-pulse' : 'text-white'}`}>{timeLeft}</span>
+                                <svg className="absolute w-full h-full -rotate-90"><circle cx="40" cy="40" r="36" stroke="currentColor" strokeWidth="4" fill="transparent" className="text-white/10" /><circle cx="40" cy="40" r="36" stroke="currentColor" strokeWidth="4" fill="transparent" strokeDasharray="226" strokeDashoffset={226 - (226 * timeLeft) / 60} className="text-white transition-all duration-1000 linear" /></svg>
+                            </div>
+
+                            <div className="px-8 py-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20 text-4xl font-black shadow-lg">
+                                {score}
+                            </div>
+
+                            <button onClick={() => setGameState('MENU')} className="w-16 h-16 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center backdrop-blur-md border border-white/10 transition-colors"><X className="w-8 h-8" /></button>
+                        </div>
+
+                        {/* Main Card */}
+                        <div className="relative z-0 w-full max-w-4xl px-8 flex-1 flex flex-col items-center justify-center">
+                            <div key={currentWordIndex} className="animate-zoom-in text-center">
+                                <p className="text-white/60 font-bold text-xl mb-4 tracking-widest">{selectedCategory.title}</p>
+                                <h1 className="text-8xl md:text-[10rem] font-black leading-tight drop-shadow-2xl break-words transform transition-transform duration-300 hover:scale-105">
+                                    {shuffledWords[currentWordIndex]}
+                                </h1>
+                            </div>
+                        </div>
+
+                        {/* Touch Areas (Manual Controls) */}
+                        <div className="absolute inset-0 z-0 flex flex-col opacity-0">
+                            <button onClick={() => handleAction('pass')} className="flex-1 w-full bg-red-500/20 active:opacity-100 transition-opacity"></button> {/* Top for Pass */}
+                            <button onClick={() => handleAction('correct')} className="flex-1 w-full bg-green-500/20 active:opacity-100 transition-opacity"></button> {/* Bottom for Correct */}
+                        </div>
+
+                        {/* Visual Helper for Touch */}
+                        <div className="absolute bottom-8 flex gap-32 opacity-40 pointer-events-none">
+                            <div className="text-center"><div className="w-16 h-1 bg-white/50 rounded-full mb-2 mx-auto"></div><span className="text-sm font-bold">صحيح (لمس تحت)</span></div>
+                            <div className="text-center"><span className="text-sm font-bold">تخطي (لمس فوق)</span><div className="w-16 h-1 bg-white/50 rounded-full mt-2 mx-auto"></div></div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (gameState === 'RESULTS') {
+                return (
+                    <div className="bg-slate-900 min-h-screen text-white p-6 flex flex-col font-sans relative overflow-hidden">
+                        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
+
+                        <div className="relative z-10 max-w-3xl mx-auto w-full flex flex-col h-full">
+                            <div className="text-center py-10">
+                                <div className="inline-block p-6 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-[2rem] shadow-2xl mb-6 animate-bounce-slow">
+                                    <Trophy className="w-24 h-24 text-white" />
+                                </div>
+                                <h2 className="text-4xl font-black mb-2 text-slate-300">انتهى الوقت!</h2>
+                                <div className="text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-orange-500 drop-shadow-sm my-2">{score}</div>
+                                <p className="text-xl text-slate-400 font-bold uppercase tracking-widest">مجموع النقاط</p>
+                            </div>
+
+                            <div className="flex-1 bg-white/5 backdrop-blur-xl rounded-[2.5rem] p-6 overflow-hidden border border-white/10 shadow-2xl flex flex-col">
+                                <h3 className="font-bold text-xl mb-4 flex items-center gap-3 text-slate-300 px-2">
+                                    <span className="w-2 h-8 bg-indigo-500 rounded-full"></span>
+                                    ملخص الكلمات
+                                </h3>
+
+                                <div className="flex-1 overflow-y-auto px-2 custom-scrollbar space-y-3">
+                                    {results.map((res, i) => (
+                                        <div key={i} className={`flex justify-between items-center p-4 rounded-2xl border transition-all hover:scale-[1.01] ${res.status === 'correct' ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                                            <span className="text-2xl font-bold text-white">{res.word}</span>
+                                            <div className={`p-2 rounded-full ${res.status === 'correct' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
+                                                {res.status === 'correct' ? <Check size={20} strokeWidth={3} /> : <X size={20} strokeWidth={3} />}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {results.length === 0 && <p className="text-center py-20 text-slate-500 text-xl">لم يتم تسجيل أي محاولة</p>}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-6 mt-8 pb-4">
+                                <button onClick={() => setGameState('MENU')} className="py-5 bg-slate-800 hover:bg-slate-700 rounded-2xl font-black text-xl flex items-center justify-center gap-3 transition-all border border-slate-700 shadow-xl">
+                                    <HomeIcon size={24} /> القائمة الرئيسية
+                                </button>
+                                <button onClick={() => startGame(selectedCategory)} className="py-5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 active:scale-95 rounded-2xl font-black text-xl text-white flex items-center justify-center gap-3 transition-all shadow-xl shadow-indigo-900/50">
+                                    <Play size={24} /> اللعب مجدداً
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+        };
+
+        // --- MEMORY GAME COMPONENT ---
+        const MemoryGame = ({ onExit }) => {
+            const COLORS = [
+                { name: 'أحمر', class: 'bg-red-500', border: 'border-red-700' },
+                { name: 'أزرق', class: 'bg-blue-500', border: 'border-blue-700' },
+                { name: 'أخضر', class: 'bg-green-500', border: 'border-green-700' },
+                { name: 'أصفر', class: 'bg-yellow-400', border: 'border-yellow-600' },
+                { name: 'بفسجي', class: 'bg-purple-500', border: 'border-purple-700' },
+            ];
+            const [boxes, setBoxes] = useState([]);
+            const [targetColorIndex, setTargetColorIndex] = useState(null);
+            const [scores, setScores] = useState([0, 0]);
+            const [currentTeam, setCurrentTeam] = useState(0);
+            const [gameState, setGameState] = useState('init');
+            const [message, setMessage] = useState('الفريق الأول: ابدأ برمي النرد!');
+            const [isProcessing, setIsProcessing] = useState(false);
+
+            const initializeGame = () => {
+                let newBoxes = [];
+                COLORS.forEach((_, colorIdx) => {
+                    for (let i = 0; i < 4; i++) newBoxes.push({ id: Math.random(), colorIndex: colorIdx, isOpen: false, isSolved: false });
+                });
+                setBoxes(newBoxes.sort(() => Math.random() - 0.5).map((box, index) => ({ ...box, id: index })));
+                setScores([0, 0]); setCurrentTeam(0); setTargetColorIndex(null); setGameState('init');
+                setMessage('الفريق الأول: ابدأ برمي النرد!');
+            };
+            useEffect(() => { initializeGame(); }, []);
+
+            const switchTurn = () => {
+                const nextTeam = currentTeam === 0 ? 1 : 0;
+                setCurrentTeam(nextTeam); setGameState('init'); setTargetColorIndex(null);
+                setMessage(`دور الفريق ${nextTeam === 0 ? 'الأول' : 'الثاني'} - ارمِ النرد!`);
+            };
+
+            const rollDice = () => {
+                if (gameState === 'rolling' || isProcessing) return;
+                const remainingColors = Array.from(new Set(boxes.filter(b => !b.isSolved).map(b => b.colorIndex)));
+                if (remainingColors.length === 0) return;
+                sounds.playSelect();
+                setGameState('rolling');
+                let rolls = 0;
+                const interval = setInterval(() => {
+                    setTargetColorIndex(Math.floor(Math.random() * COLORS.length));
+                    if (++rolls > 10) {
+                        clearInterval(interval);
+                        const finalColor = remainingColors[Math.floor(Math.random() * remainingColors.length)];
+                        setTargetColorIndex(finalColor);
+                        setGameState('guessing');
+                        setMessage(`الفريق ${currentTeam === 0 ? 'الأول' : 'الثاني'}: جد اللون ${COLORS[finalColor].name}`);
+                        sounds.playClick();
+                    }
+                }, 100);
+            };
+
+            const handleBoxClick = (index) => {
+                if (gameState !== 'guessing' || boxes[index].isSolved || boxes[index].isOpen || isProcessing) return;
+                setIsProcessing(true); sounds.playClick();
+                const newBoxes = [...boxes]; newBoxes[index].isOpen = true; setBoxes(newBoxes);
+                if (newBoxes[index].colorIndex === targetColorIndex) {
+                    setMessage('أحسنت! نقطة لكم ✅');
+                    setTimeout(() => {
+                        sounds.playCorrect();
+                        newBoxes[index].isSolved = true;
+                        setBoxes([...newBoxes]);
+                        const newScores = [...scores]; newScores[currentTeam] += 1; setScores(newScores);
+                        if (newBoxes.every(b => b.isSolved)) {
+                            setGameState('won');
+                            sounds.playWin(); confetti({ particleCount: 200, spread: 100 });
+                            setMessage(newScores[0] > newScores[1] ? '🏆 مبروك! فاز الفريق الأول!' : newScores[1] > newScores[0] ? '🏆 مبروك! فاز الفريق الثاني!' : '🤝 تعادل!');
+                        } else { switchTurn(); }
+                        setIsProcessing(false);
+                    }, 800);
+                } else {
+                    setMessage('خطأ! تذكروا اللون ❌');
+                    setTimeout(() => {
+                        sounds.playWrong();
+                        newBoxes[index].isOpen = false; setBoxes([...newBoxes]); switchTurn(); setIsProcessing(false);
+                    }, 1000);
+                }
+            };
+            return (
+                <div className="bg-slate-900 min-h-screen p-4 flex flex-col items-center justify-center animate-fade-in text-white">
+                    <div className="w-full max-w-2xl">
+                        <div className="flex justify-between items-center mb-6">
+                            <button onClick={onExit} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><HomeIcon /></button>
+                            <h2 className="text-3xl font-bold text-yellow-500">تحدي الذاكرة</h2>
+                            <button onClick={initializeGame} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><RotateCcw /></button>
+                        </div>
+                        <div className="flex w-full justify-between gap-4 mb-8">
+                            {[0, 1].map(t => (
+                                <div key={t} className={`flex-1 rounded-2xl p-4 flex flex-col items-center border-2 transition-all ${currentTeam === t && gameState !== 'won' ? (t === 0 ? 'bg-blue-900/40 border-blue-500 shadow-blue-500/50' : 'bg-orange-900/40 border-orange-500 shadow-orange-500/50') : 'bg-slate-800 border-transparent opacity-70'}`}>
+                                    <div className="flex items-center gap-2 mb-2"><Users size={20} className={t === 0 ? 'text-blue-400' : 'text-orange-400'} /><span className={`font-bold ${t === 0 ? 'text-blue-100' : 'text-orange-100'}`}>الفريق {t + 1}</span></div>
+                                    <span className="text-3xl font-bold">{scores[t]}</span>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="mb-6 h-8 text-center"><span className={`font-medium text-lg animate-pulse ${gameState === 'won' ? 'text-yellow-400 font-bold' : 'text-slate-300'}`}>{message}</span></div>
+                        <div className="mb-8 flex justify-center">
+                            <button onClick={rollDice} disabled={gameState !== 'init'} className={`w-24 h-24 rounded-2xl shadow-2xl flex items-center justify-center transition-all transform ${gameState === 'init' ? 'bg-white text-slate-900 hover:scale-105 hover:bg-gray-50' : ''} ${gameState === 'rolling' ? 'animate-spin bg-slate-700' : ''} ${gameState === 'guessing' && targetColorIndex !== null ? COLORS[targetColorIndex].class : ''} ${gameState === 'won' ? 'bg-yellow-500 text-white' : ''} border-4 border-slate-700`}>
+                                {gameState === 'init' && <Dices size={40} />}
+                                {gameState === 'rolling' && <RotateCcw size={40} className="animate-spin text-white" />}
+                                {gameState === 'guessing' && targetColorIndex !== null && <div className="text-white drop-shadow-md font-bold text-lg">؟</div>}
+                                {gameState === 'won' && <Trophy size={40} />}
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-5 gap-3 w-full">
+                            {boxes.map((box, i) => (<div key={box.id} onClick={() => handleBoxClick(i)} className={`aspect-square rounded-xl relative cursor-pointer transition-all duration-500 transform ${box.isSolved ? 'opacity-0 pointer-events-none scale-0' : 'opacity-100 scale-100'}`}><div className={`w-full h-full rounded-xl shadow-lg border-b-4 transition-all duration-300 flex items-center justify-center ${box.isOpen ? `${COLORS[box.colorIndex].class} ${COLORS[box.colorIndex].border} rotate-y-180` : 'bg-slate-700 border-slate-900 hover:bg-slate-600'}`}>{!box.isOpen && !box.isSolved && <Box size={24} className="text-slate-500 opacity-50" />}</div></div>))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- WALA KILMA GAME (CHARADES) ---
+        const WalaKilmaGame = ({ onExit }) => {
+            const [gameState, setGameState] = useState('SETUP'); // SETUP, PLAYING, WINNER
+            const [teams, setTeams] = useState([{ id: 1, name: 'الفريق 1', score: 0, skips: 2 }, { id: 2, name: 'الفريق 2', score: 0, skips: 2 }]);
+            const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
+            const [targetScore, setTargetScore] = useState(5);
+            const [isTimerRunning, setIsTimerRunning] = useState(false);
+            const [currentProverb, setCurrentProverb] = useState(null);
+            const [showProverb, setShowProverb] = useState(false);
+            const [isLoading, setIsLoading] = useState(false);
+            // We use key on CountdownTimer to reset it easily
+            const [timerKey, setTimerKey] = useState(0);
+
+            const addTeam = () => { if (teams.length < 5) setTeams([...teams, { id: Date.now(), name: `فريق ${teams.length + 1}`, score: 0, skips: 2 }]); };
+            const removeTeam = (id) => { if (teams.length > 2) setTeams(teams.filter(t => t.id !== id)); };
+
+            const fetchProverb = async () => {
+                setIsLoading(true);
+                try {
+                    const res = await fetch('/api/proverbs/random'); // Assuming this exists
+                    if (res.ok) {
+                        const data = await res.json();
+                        setCurrentProverb(data.content);
+                    } else {
+                        setCurrentProverb("خطأ في تحميل المثل!");
+                    }
+                } catch (e) { setCurrentProverb("خطأ في الاتصال!"); }
+                setIsLoading(false);
+            };
+
+            const startGameFlow = () => {
+                fetchProverb();
+                setGameState('PLAYING');
+                setIsTimerRunning(false); // Manual start
+                setShowProverb(false);
+                setTimerKey(prev => prev + 1); // Reset timer
+            };
+
+            const handleTeamNameChange = (id, val) => {
+                setTeams(teams.map(t => t.id === id ? { ...t, name: val } : t));
+            };
+
+            const TEAM_COLORS = ['from-slate-900 to-slate-800', 'from-indigo-900 to-slate-900', 'from-purple-900 to-slate-900', 'from-cyan-900 to-slate-900', 'from-rose-900 to-slate-900'];
+            const currentBg = TEAM_COLORS[currentTeamIndex % TEAM_COLORS.length];
+
+            const handleReveal = () => {
+                setShowProverb(true);
+                setIsTimerRunning(false); // Explicitly NOT running yet. Wait for manual start.
+                sounds.playSelect();
+            };
+
+            const handleStartTimer = () => {
+                setIsTimerRunning(true);
+                sounds.playSelect();
+            };
+
+            const handleSkip = () => {
+                const currentTeam = teams[currentTeamIndex];
+                if (currentTeam.skips > 0) {
+                    sounds.playClick();
+                    const newTeams = [...teams];
+                    newTeams[currentTeamIndex].skips -= 1;
+                    setTeams(newTeams);
+                    fetchProverb(); // Get new proverb
+                    // Logic: Do we reset timer? User request implies "Start & Timer", but usually skips just give new word. 
+                    // I'll keep timer running to maintain the "1 minute challenge" feel.
+                }
+            };
+
+            const handleResult = (success) => {
+                setIsTimerRunning(false);
+
+                if (success) {
+                    sounds.playCorrect();
+                    const newTeams = [...teams];
+                    newTeams[currentTeamIndex].score += 1;
+                    setTeams(newTeams);
+                    confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+
+                    // Check Winner
+                    if (newTeams[currentTeamIndex].score >= targetScore) {
+                        setTimeout(() => setGameState('WINNER'), 1000);
+                        return;
+                    }
+                } else {
+                    sounds.playWrong();
+                }
+
+                // Next turn
+                setTimeout(() => {
+                    setCurrentTeamIndex((prev) => (prev + 1) % teams.length);
+                    // Reset round
+                    setShowProverb(false);
+                    setIsTimerRunning(false);
+                    setTimerKey(prev => prev + 1); // Reset timer visual
+                    fetchProverb();
+                    setCurrentProverb(null);
+                }, 1000);
+            };
+
+            // Remove old useEffect for custom timer since we use CountdownTimer now
+            // kept minimal logic if needed, but CountdownTimer handles the interval
+            const handleTimeUp = () => {
+                sounds.playWrong();
+                setIsTimerRunning(false);
+                // Optionally auto-fail? Or just stop and let judge decide. Usually time up = fail.
+                // Let's sound the alarm and stop.
+            };
+
+
+
+            if (gameState === 'SETUP') {
+                return (
+                    <div className="min-h-screen bg-slate-900 text-white p-6 flex flex-col items-center justify-center animate-fade-in">
+                        <button onClick={onExit} className="absolute top-4 right-4 bg-slate-800 p-2 rounded-full hover:bg-slate-700"><HomeIcon /></button>
+                        <h1 className="text-5xl font-black text-yellow-500 mb-8 tracking-tighter">ولا كلمة 🤫</h1>
+
+                        <div className="w-full max-w-md bg-slate-800 rounded-3xl p-6 shadow-2xl mb-8">
+                            <h3 className="text-xl font-bold mb-4 text-center text-slate-400">الفرق المشاركة</h3>
+                            <div className="space-y-3 mb-6">
+                                {teams.map((t, i) => (
+                                    <div key={t.id} className="flex justify-between items-center bg-slate-700/50 p-3 rounded-xl border border-slate-600">
+                                        <div className="flex items-center gap-3 flex-1">
+                                            <span className="bg-slate-600 w-8 h-8 flex items-center justify-center rounded-full font-bold">{i + 1}</span>
+                                            <input value={t.name} onChange={(e) => handleTeamNameChange(t.id, e.target.value)} className="bg-transparent text-white font-bold text-lg outline-none w-full border-b border-transparent focus:border-yellow-500 transition-colors" />
+                                        </div>
+                                        {teams.length > 2 && <button onClick={() => removeTeam(t.id)} className="text-red-400 hover:bg-slate-600 p-1 rounded"><X size={18} /></button>}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Target Score Selection */}
+                        <div className="bg-slate-700/50 p-4 rounded-xl mb-8 flex items-center justify-between border border-slate-600">
+                            <span className="font-bold text-slate-300">النقاط للفوز:</span>
+                            <div className="flex items-center gap-4">
+                                <button onClick={() => setTargetScore(Math.max(1, targetScore - 1))} className="bg-slate-600 w-10 h-10 rounded-full hover:bg-slate-500 font-bold text-xl">-</button>
+                                <span className="font-black text-2xl text-yellow-500 w-12 text-center">{targetScore}</span>
+                                <button onClick={() => setTargetScore(targetScore + 1)} className="bg-slate-600 w-10 h-10 rounded-full hover:bg-slate-500 font-bold text-xl">+</button>
+                            </div>
+                        </div>
+
+                        {teams.length < 5 && (
+                            <button onClick={addTeam} className="w-full py-3 rounded-xl border-2 border-dashed border-slate-600 text-slate-400 hover:border-yellow-500 hover:text-yellow-500 font-bold transition-all mb-6">+ إضافة فريق</button>
+                        )}
+                        <button onClick={startGameFlow} className="w-full bg-yellow-500 text-slate-900 py-4 rounded-xl font-black text-2xl shadow-lg hover:scale-105 transition-transform">بدء اللعبة</button>
+                    </div>
+                );
+            }
+
+
+            if (gameState === 'WINNER') {
+                const winner = teams.reduce((prev, current) => (prev.score > current.score) ? prev : current);
+                return (
+                    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center animate-zoom-in">
+                        <Trophy className="text-yellow-500 w-48 h-48 mb-8 animate-bounce drop-shadow-2xl" />
+                        <h1 className="text-6xl font-black text-white mb-4">مبروك!</h1>
+                        <h2 className="text-8xl font-black text-yellow-500 mb-12 drop-shadow-lg">{winner.name}</h2>
+                        <div className="flex gap-4">
+                            <button onClick={() => { setTeams(teams.map(t => ({ ...t, score: 0, skips: 2 }))); setGameState('PLAYING'); }} className="bg-slate-700 text-white px-8 py-4 rounded-full font-bold text-xl hover:bg-slate-600 transition-all">لعب مجددًا 🔄</button>
+                            <button onClick={onExit} className="bg-yellow-500 text-slate-900 px-8 py-4 rounded-full font-black text-xl hover:scale-105 transition-transform">الخروج 🏠</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            // --- PLAYING STATE ---
+            return (
+                <div className={`min-h-screen bg-gradient-to-br ${currentBg} text-white p-4 flex flex-col animate-fade-in transition-colors duration-1000`}>
+                    {/* Header: Scoreboard */}
+                    <div className="bg-slate-900/40 backdrop-blur-md rounded-2xl p-4 flex justify-between items-center mb-6 shadow-xl border border-white/10">
+                        <button onClick={() => setGameState('SETUP')} className="bg-white/10 p-2 rounded-full hover:bg-white/20"><Settings size={20} /></button>
+                        <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-1 px-4">
+                            {teams.map((t, i) => (
+                                <div key={t.id} className={`px-5 py-3 rounded-2xl flex flex-col items-center min-w-[90px] transition-all duration-500 ${currentTeamIndex === i ? 'bg-yellow-500 text-slate-900 scale-110 shadow-lg ring-4 ring-yellow-500/30' : 'bg-slate-800/50 text-slate-400'}`}>
+                                    <span className="font-bold text-xs opacity-70 mb-1">{t.name}</span>
+                                    <span className="font-black text-2xl leading-none">{t.score}</span>
+                                </div>
+                            ))}
+                        </div>
+                        {/* Timer Visualization using CountdownTimer component */}
+                        <div className="bg-slate-800/80 rounded-full p-1 shadow-lg backdrop-blur">
+                            <CountdownTimer key={timerKey} duration={60} isRunning={isTimerRunning} onComplete={handleTimeUp} />
+                        </div>
+                    </div>
+
+                    {/* Main Game Area */}
+                    <div className="flex-1 flex flex-col items-center justify-center text-center relative z-10">
+                        {/* Card Container */}
+                        <div className="w-full max-w-3xl perspective-1000 h-[400px]">
+                            <div className={`relative w-full h-full transition-all duration-700 transform-style-3d ${showProverb ? 'rotate-y-180' : ''}`}>
+
+                                {/* Front (Reveal Button) */}
+                                {!showProverb && (
+                                    <button onClick={() => { fetchProverb(); handleReveal(); }} className="absolute inset-0 w-full h-full bg-white/10 backdrop-blur-md rounded-[3rem] border-4 border-white/20 shadow-2xl flex flex-col items-center justify-center group hover:bg-white/20 transition-all cursor-pointer">
+                                        <div className="bg-yellow-500 w-24 h-24 rounded-full flex items-center justify-center text-4xl shadow-lg mb-6 group-hover:scale-110 transition-transform">🤔</div>
+                                        <h2 className="text-4xl font-black text-white tracking-widest uppercase">اضغط للكشف</h2>
+                                        <p className="mt-4 text-white/60 font-medium">جاهز؟</p>
+                                    </button>
+                                )}
+
+                                {/* Back (Content) */}
+                                {showProverb && (
+                                    <div className="absolute inset-0 w-full h-full bg-white text-slate-900 rounded-[3rem] shadow-2xl flex flex-col items-center justify-center p-8 animate-fade-in relative overflow-hidden">
+                                        <div className="absolute top-0 w-full h-2 bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500"></div>
+
+                                        {/* Controls (Top) */}
+                                        {!isTimerRunning && (
+                                            <div className="flex gap-3 mb-6 animate-fade-in-up z-20">
+                                                <button onClick={handleStartTimer} className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-full font-black text-lg shadow-lg hover:-translate-y-1 transition-all flex items-center gap-2">
+                                                    <Play size={20} /> ابدأ الوقت
+                                                </button>
+                                                <button onClick={handleSkip} disabled={teams[currentTeamIndex].skips <= 0} className="bg-slate-200 hover:bg-slate-300 text-slate-600 hover:text-slate-800 px-6 py-3 rounded-full font-bold text-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+                                                    تخطي <span className="bg-slate-800 text-white text-xs px-2 py-0.5 rounded-full">{teams[currentTeamIndex].skips}</span>
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        <p className="text-slate-400 font-bold tracking-widest uppercase text-sm mb-4">المثل هو:</p>
+                                        <h2 className="text-4xl md:text-5xl font-black leading-snug text-slate-800 max-w-2xl drop-shadow-sm">
+                                            {isLoading ? "..." : currentProverb || "..."}
+                                        </h2>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Judge Controls - Bottom Fixed */}
+                        {isTimerRunning && (
+                            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-full max-w-md flex gap-4 px-4 animate-slide-up">
+                                <button onClick={() => handleResult(false)} className="flex-1 bg-red-100/90 backdrop-blur border-2 border-red-500 text-red-600 py-6 rounded-3xl font-black text-2xl hover:bg-red-500 hover:text-white transition-all shadow-xl active:scale-95">
+                                    ❌ خطأ
+                                </button>
+                                <button onClick={() => handleResult(true)} className="flex-1 bg-green-100/90 backdrop-blur border-2 border-green-500 text-green-600 py-6 rounded-3xl font-black text-2xl hover:bg-green-500 hover:text-white transition-all shadow-xl active:scale-95">
+                                    ✅ صح
+                                </button>
+                            </div>
+                        )}
+
+                    </div>
+                </div>
+            );
+        };
+
+        // --- QUIZ GAME COMPONENT (Existing) ---
+        const QuizGame = ({ onExit }) => {
+            const [gameState, setGameState] = useState('setup');
+            const [teams, setTeams] = useState([{ id: 1, name: 'الفريق 1', score: 0 }, { id: 2, name: 'الفريق 2', score: 0 }]);
+            const [selectedCategories, setSelectedCategories] = useState([]);
+            const [availableCategories, setAvailableCategories] = useState([]);
+            const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
+            const [activeQuestions, setActiveQuestions] = useState([]);
+            const [selectedQuestion, setSelectedQuestion] = useState(null);
+            const [showAnswer, setShowAnswer] = useState(false);
+            const [selectedOption, setSelectedOption] = useState(null);
+            const [challengeMode, setChallengeMode] = useState(false);
+            const [timerActive, setTimerActive] = useState(false);
+
+            useEffect(() => {
+                fetch('/api/categories').then(r => r.json()).then(data => { if (Array.isArray(data)) setAvailableCategories(data); }).catch(e => console.log(e));
+            }, []);
+
+            const handleAddTeam = () => { sounds.playSelect(); if (teams.length < 4) setTeams([...teams, { id: Date.now(), name: `فريق ${teams.length + 1}`, score: 0 }]); };
+            const handleRemoveTeam = (id) => { sounds.playSelect(); if (teams.length > 2) setTeams(teams.filter(t => t.id !== id)); };
+            const handleTeamNameChange = (id, newName) => setTeams(teams.map(t => t.id === id ? { ...t, name: newName } : t));
+
+            const toggleCategory = (catName) => {
+                sounds.playClick();
+                const existing = selectedCategories.find(c => c.name === catName);
+                if (existing) {
+                    if (existing.mode === 'text') setSelectedCategories(selectedCategories.map(c => c.name === catName ? { ...c, mode: 'mcq' } : c));
+                    else setSelectedCategories(selectedCategories.filter(c => c.name !== catName));
+                } else {
+                    if (selectedCategories.length < 6) setSelectedCategories([...selectedCategories, { name: catName, mode: 'text' }]);
+                }
+            };
+            const startGame = async () => {
+                if (selectedCategories.length === 0) return;
+                sounds.playSelect();
+                try {
+                    const res = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ selectedCategories }) });
+                    if (res.ok) {
+                        const data = await res.json();
+                        setActiveQuestions(data.questions);
+                        setGameState('playing');
+                    }
+                } catch (e) { alert("خطأ في الاتصال"); }
+            };
+            const handleQuestionSelect = (q) => {
+                if (q.answered) return;
+                sounds.playClick();
+                setSelectedQuestion(q);
+                setSelectedOption(null);
+                setGameState('question');
+                setShowAnswer(false);
+                setTimerActive(challengeMode);
+            };
+            const handleAnswer = (isCorrect) => {
+                setTimerActive(false);
+                if (isCorrect) {
+                    sounds.playCorrect();
+                    const updated = [...teams];
+                    updated[currentTeamIndex].score += selectedQuestion.points;
+                    setTeams(updated);
+                } else {
+                    sounds.playWrong();
+                    if (challengeMode) {
+                        const updated = [...teams];
+                        updated[currentTeamIndex].score -= Math.floor(selectedQuestion.points / 2);
+                        setTeams(updated);
+                    }
+                }
+                const newQs = activeQuestions.map(q => q.id === selectedQuestion.id ? { ...q, answered: true } : q);
+                setActiveQuestions(newQs);
+                if (newQs.every(q => q.answered)) {
+                    sounds.playWin();
+                    confetti({ particleCount: 200, spread: 100 });
+                    setGameState('winner');
+                } else {
+                    setCurrentTeamIndex((currentTeamIndex + 1) % teams.length);
+                    setGameState('playing');
+                }
+                setSelectedQuestion(null);
+            };
+
+            return (
+                <div className="animate-fade-in p-4 bg-slate-50 min-h-screen h-full overflow-y-auto">
+                    {/* Header */}
+                    <div className="max-w-7xl mx-auto flex justify-between items-center mb-6">
+                        <button onClick={onExit} className="flex items-center gap-2 text-slate-500 hover:text-indigo-600 font-bold transition-colors bg-white px-4 py-2 rounded-xl shadow-sm">
+                            <HomeIcon size={20} /> الرئيسية
+                        </button>
+                        <h2 className="text-2xl font-black text-indigo-900 hidden md:block">المسابقة الكبرى</h2>
+                        {gameState !== 'setup' && <button onClick={() => setGameState('setup')} className="bg-white p-2 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 shadow-sm"><Settings size={20} /></button>}
+                    </div>
+                    {gameState === 'setup' && (
+                        <div className="max-w-5xl mx-auto bg-white rounded-[2rem] p-8 shadow-xl border border-indigo-50 animate-fade-in-up">
+                            <div className="text-center mb-8"><h1 className="text-4xl font-black text-indigo-900">إعداد المعركة</h1></div>
+
+                            <div className="mb-8 p-4 bg-yellow-50/50 rounded-2xl border border-yellow-100">
+                                <label className="flex items-center gap-4 cursor-pointer select-none">
+                                    <input type="checkbox" checked={challengeMode} onChange={(e) => setChallengeMode(e.target.checked)} className="w-6 h-6 text-indigo-600 rounded cursor-pointer" />
+                                    <div><span className="font-bold flex items-center gap-2 text-yellow-900 text-lg">وضع التحدي</span><span className="text-sm text-yellow-700 block">مؤقت وخصم نقاط</span></div>
+                                </label>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                                {teams.map((t, i) => (
+                                    <div key={t.id} className="flex items-center gap-3 bg-gray-50 p-4 rounded-xl border focus-within:border-indigo-400 focus-within:bg-white focus-within:shadow-md transition-all">
+                                        <span className={`w-10 h-10 flex items-center justify-center rounded-full font-bold text-white shadow-sm ${['bg-indigo-500', 'bg-purple-500', 'bg-pink-500', 'bg-teal-500'][i % 4]}`}>{i + 1}</span>
+                                        <input value={t.name} onChange={(e) => handleTeamNameChange(t.id, e.target.value)} className="bg-transparent font-bold flex-1 outline-none text-lg" />
+                                        {teams.length > 2 && <button onClick={() => handleRemoveTeam(t.id)} className="text-red-400 hover:bg-red-50 p-1 rounded"><X size={20} /></button>}
+                                    </div>
+                                ))}
+                                {teams.length < 4 && <button onClick={handleAddTeam} className="border-2 border-dashed border-indigo-200 text-indigo-400 rounded-xl p-3 font-bold hover:bg-indigo-50 hover:border-indigo-400 transition-all">+ فريق</button>}
+                            </div>
+
+                            <div className="mb-4 p-4 bg-blue-50 rounded-xl border border-blue-100 text-sm md:text-base text-blue-800">
+                                <h4 className="font-bold flex items-center gap-2 mb-2"><Info size={18} /> طريقة اختيار الأسئلة:</h4>
+                                <ul className="list-disc list-inside space-y-1 opacity-80">
+                                    <li>اضغط <span className="font-bold text-indigo-600">مرة واحدة</span> لاختيار التصنيف (سؤال نصي 📝)</li>
+                                    <li>اضغط <span className="font-bold text-purple-600">مرة ثانية</span> لتفعيله كخيار من متعدد (MCQ 🔘)</li>
+                                    <li>اضغط <span className="font-bold text-red-500">مرة ثالثة</span> لإلغاء الاختيار</li>
+                                </ul>
+                            </div>
+
+                            <div className="mb-8">
+                                <h3 className="font-bold mb-4 text-lg">اختر حتى 6 تصنيفات</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 max-h-64 overflow-y-auto custom-scrollbar p-1">
+                                    {availableCategories.map(cat => {
+                                        const sel = selectedCategories.find(c => c.name === cat);
+                                        return (
+                                            <button key={cat} onClick={() => toggleCategory(cat)} className={`p-4 rounded-xl font-bold text-sm relative transition-all h-24 flex flex-col items-center justify-center gap-2 ${sel ? (sel.mode === 'text' ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-500 shadow-md transform scale-105' : 'bg-purple-100 text-purple-700 border-2 border-purple-500 shadow-md transform scale-105') : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-white hover:shadow-md hover:border-gray-200'}`}>
+                                                {cat}
+                                                {sel && <div className={`px-2 py-0.5 rounded text-[10px] ${sel.mode === 'text' ? 'bg-indigo-200' : 'bg-purple-200'}`}>{sel.mode === 'text' ? 'عام' : 'خيارات'}</div>}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            <button onClick={startGame} disabled={selectedCategories.length < 1} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black py-5 rounded-2xl shadow-xl hover:shadow-indigo-200 hover:-translate-y-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-xl">ابدأ اللعبة</button>
+                        </div>
+                    )}
+
+                    {(gameState === 'playing' || gameState === 'question') && (
+                        <div className="max-w-7xl mx-auto space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                                <div className="md:col-span-8 bg-white rounded-2xl p-6 shadow-lg flex justify-between items-center border-b-4 border-indigo-500">
+                                    <div><span className="text-gray-400 text-xs font-bold uppercase tracking-wider">الدور على</span><h2 className="text-4xl font-black text-indigo-900">{teams[currentTeamIndex].name}</h2></div>
+                                </div>
+                                <div className="md:col-span-4 space-y-2">
+                                    {teams.map((t, i) => (<div key={t.id} className={`flex justify-between p-4 rounded-xl transition-all ${currentTeamIndex === i ? 'bg-indigo-600 text-white shadow-lg scale-105' : 'bg-white text-gray-500 shadow-sm'}`}><span className="font-bold">{t.name}</span><span className="font-black text-xl">{t.score}</span></div>))}
+                                </div>
+                            </div>
+                            <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${selectedCategories.length}, 1fr)` }}>
+                                {selectedCategories.map(c => <div key={c.name} className={`text-center py-3 rounded-xl font-bold text-white text-sm md:text-base truncate px-2 shadow-md ${c.mode === 'text' ? 'bg-indigo-500' : 'bg-purple-500'}`}>{c.name}</div>)}
+                                {[100, 200, 300, 400, 500].map(pts => (
+                                    <React.Fragment key={pts}>
+                                        {selectedCategories.map(cat => {
+                                            const q = activeQuestions.find(i => i.category === cat.name && i.points === pts);
+                                            return (
+                                                <button key={`${cat.name}-${pts}`} disabled={!q || q.answered} onClick={() => q && handleQuestionSelect(q)} className={`h-24 md:h-32 rounded-2xl font-black text-3xl shadow-sm transition-all relative overflow-hidden group ${!q || q.answered ? 'bg-gray-100 text-gray-300' : 'bg-white text-indigo-600 hover:scale-105 hover:shadow-xl hover:z-10'}`}>
+                                                    {q && !q.answered && pts}
+                                                    {q && !q.answered && <div className={`absolute bottom-0 left-0 w-full h-1 ${q.mode === 'text' ? 'bg-indigo-400' : 'bg-purple-400'} group-hover:h-2 transition-all`}></div>}
+                                                </button>
+                                            )
+                                        })}
+                                    </React.Fragment>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {gameState === 'question' && selectedQuestion && (
+                        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-5xl rounded-[2.5rem] overflow-hidden shadow-2xl animate-zoom-in max-h-[90vh] flex flex-col">
+                                <div className={`p-6 text-white flex justify-between items-center ${selectedQuestion.mode === 'text' ? 'bg-gradient-to-r from-indigo-600 to-indigo-800' : 'bg-gradient-to-r from-purple-600 to-purple-800'}`}>
+                                    <button onClick={() => setGameState('playing')} className="hover:bg-white/20 p-2 rounded-full transition-colors"><X size={32} /></button>
+                                    <div className="flex items-center gap-4">
+                                        {timerActive && (
+                                            <div className="bg-white rounded-full p-1 shadow-lg">
+                                                <CountdownTimer duration={30} isRunning={timerActive} onComplete={() => handleAnswer(false)} />
+                                            </div>
+                                        )}
+                                        <div className="font-bold text-2xl">{selectedQuestion.category} - {selectedQuestion.points}</div>
+                                    </div>
+                                </div>
+                                <div className="p-10 text-center flex-1 flex flex-col items-center justify-center gap-8 overflow-y-auto">
+                                    <h2 className="text-3xl md:text-5xl font-black text-slate-800 leading-snug max-w-4xl">{selectedQuestion.question}</h2>
+                                    {selectedQuestion.mode === 'mcq' && !showAnswer && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-3xl">
+                                            {selectedQuestion.options.map((o, i) => (<button key={i} onClick={() => { sounds.playClick(); setSelectedOption(o) }} className={`p-6 border-2 rounded-2xl text-xl font-bold transition-all ${selectedOption === o ? 'border-purple-600 bg-purple-50 text-purple-700 shadow-lg scale-105' : 'bg-white border-gray-100 text-gray-600 hover:border-purple-200 hover:bg-gray-50'}`}>{o}</button>))}
+                                        </div>
+                                    )}
+                                    {showAnswer ? (
+                                        <div className="animate-fade-in-up bg-green-50 text-green-800 px-12 py-8 rounded-3xl border-4 border-green-200 shadow-xl">
+                                            <div className="text-sm font-bold uppercase tracking-widest opacity-60 mb-2">الإجابة الصحيحة</div>
+                                            <div className="text-5xl font-black">{selectedQuestion.answer}</div>
+                                            {selectedQuestion.mode === 'mcq' && selectedOption && (
+                                                <div className="mt-4 pt-4 border-t border-green-200">
+                                                    إجابتكم: <span className={`font-bold ${selectedOption === selectedQuestion.answer ? 'text-green-600' : 'text-red-500 line-through'}`}>{selectedOption}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : <button onClick={() => { sounds.playClick(); setShowAnswer(true); setTimerActive(false) }} className="text-indigo-500 flex flex-col items-center gap-2 hover:opacity-80 group"><div className="bg-white p-4 rounded-full shadow-lg border border-indigo-100 group-hover:scale-110 transition-transform"><Trophy size={40} /></div><span className="font-bold">كشف الإجابة</span></button>}
+                                </div>
+                                <div className="bg-gray-50 p-6 flex gap-4 border-t border-gray-100">
+                                    <button onClick={() => handleAnswer(false)} className="flex-1 bg-white border-2 border-red-100 text-red-600 py-4 rounded-2xl font-bold text-2xl hover:bg-red-600 hover:text-white hover:border-red-600 transition-all shadow-sm">خطأ (-50%)</button>
+                                    <button onClick={() => handleAnswer(true)} className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-bold text-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 hover:-translate-y-1">صحيح</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {gameState === 'winner' && (
+                        <div className="text-center py-20 animate-fade-in flex flex-col items-center justify-center min-h-[80vh]">
+                            <div className="relative mb-8">
+                                <div className="absolute inset-0 bg-yellow-400 blur-3xl opacity-20"></div>
+                                <Trophy className="w-48 h-48 text-yellow-500 animate-bounce relative z-10 drop-shadow-lg" />
+                            </div>
+                            <h1 className="text-8xl font-black text-indigo-900 mb-4 tracking-tighter">مبروك!</h1>
+                            <p className="text-4xl text-gray-500 mb-12 font-bold">الفائز هو team <span className="text-indigo-600">{teams.sort((a, b) => b.score - a.score)[0].name}</span></p>
+                            <button onClick={() => setGameState('setup')} className="bg-slate-900 text-white px-12 py-5 rounded-full font-bold hover:scale-105 transition-transform text-xl shadow-2xl flex items-center gap-2"><ArrowRight /> لعبة جديدة</button>
+                        </div>
+                    )}
+                </div>
+            )
+        };
+
+        // --- ADMIN PANEL COMPONENT ---
+        const AdminPanel = ({ onExit }) => {
+            const [activeTab, setActiveTab] = useState('quiz'); // quiz, proverbs, words
+
+            return (
+                <div className="max-w-7xl mx-auto p-6 bg-gray-50 min-h-screen animate-fade-in font-sans">
+                    {/* Header */}
+                    <div className="flex justify-between items-center mb-8 bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                        <div className="flex items-center gap-4">
+                            <button onClick={onExit} className="p-3 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors text-gray-600"><HomeIcon width="24" height="24" /></button>
+                            <h2 className="text-3xl font-black text-slate-800">لوحة التحكم ⚙️</h2>
+                        </div>
+                        <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
+                            {[
+                                { id: 'quiz', label: 'المسابقة 🏆' },
+                                { id: 'proverbs', label: 'ولا كلمة 🤫' },
+                                { id: 'words', label: 'أيش الكلمة 📱' }
+                            ].map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={`px-6 py-3 rounded-lg font-bold transition-all ${activeTab === tab.id ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Content Area */}
+                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 min-h-[600px]">
+                        {activeTab === 'quiz' && <QuizAdmin />}
+                        {activeTab === 'proverbs' && <ProverbsAdmin />}
+                        {activeTab === 'words' && <WordsAdmin />}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- ADMIN SUB-COMPONENTS ---
+
+        // 1. Quiz Admin
+        const QuizAdmin = () => {
+            const [questions, setQuestions] = useState([]);
+            const [formData, setFormData] = useState({ id: null, category: '', difficulty: 1, question: '', answer: '', options: ['', '', '', ''], mode: 'text' });
+            const [editMode, setEditMode] = useState(false);
+            const [viewCategory, setViewCategory] = useState('');
+
+            useEffect(() => { load(); }, [viewCategory]);
+            const load = () => {
+                const url = viewCategory ? `/api/questions?category=${viewCategory}` : '/api/questions';
+                fetch(url).then(r => r.json()).then(setQuestions);
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                const url = formData.id ? `/api/questions/${formData.id}` : '/api/questions';
+                await fetch(url, { method: formData.id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                setEditMode(false); load();
+                setFormData({ id: null, category: '', difficulty: 1, question: '', answer: '', options: ['', '', '', ''], mode: 'text' });
+            };
+
+            const handleDelete = async (id) => {
+                if (confirm('هل أنت متأكد من الحذف؟')) {
+                    await fetch(`/api/questions/${id}`, { method: 'DELETE' });
+                    load();
+                }
+            };
+
+            return (
+                <div>
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-xl font-bold text-gray-700">إدارة الأسئلة ({questions.length})</h3>
+                        <button onClick={() => { setEditMode(true); setFormData({ id: null, category: '', difficulty: 1, question: '', answer: '', options: ['', '', '', ''], mode: 'text' }); }} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-700">+ سؤال جديد</button>
+                    </div>
+
+                    {editMode ? (
+                        <form onSubmit={handleSubmit} className="space-y-4 max-w-2xl mx-auto bg-gray-50 p-6 rounded-2xl border border-gray-200">
+                            <div className="grid grid-cols-2 gap-4">
+                                <input className="p-3 border rounded-xl" placeholder="التصنيف (مثال: علوم)" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} required />
+                                <input type="number" min="1" max="5" className="p-3 border rounded-xl" placeholder="الصعوبة (1-5)" value={formData.difficulty} onChange={e => setFormData({ ...formData, difficulty: parseInt(e.target.value) })} required />
+                            </div>
+                            <textarea className="w-full p-3 border rounded-xl h-24" placeholder="نص السؤال" value={formData.question} onChange={e => setFormData({ ...formData, question: e.target.value })} required />
+                            <input className="w-full p-3 border rounded-xl bg-green-50 border-green-200" placeholder="الإجابة الصحيحة" value={formData.answer} onChange={e => setFormData({ ...formData, answer: e.target.value })} required />
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-gray-500">الخيارات (اختياري)</label>
+                                {formData.options.map((o, i) => (
+                                    <input key={i} className="w-full p-2 border rounded-lg text-sm" placeholder={`خيار ${i + 1}`} value={o} onChange={e => { const newOpts = [...formData.options]; newOpts[i] = e.target.value; setFormData({ ...formData, options: newOpts }) }} />
+                                ))}
+                            </div>
+
+                            <div className="flex gap-4 pt-4">
+                                <button type="submit" className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:scale-[1.02] transition-transform">حفظ</button>
+                                <button type="button" onClick={() => setEditMode(false)} className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-300">إلغاء</button>
+                            </div>
+                        </form>
+                    ) : (
+                        <div className="grid gap-3">
+                            {questions.map(q => (
+                                <div key={q.id} className="p-4 border border-gray-100 rounded-xl flex justify-between items-center hover:bg-gray-50 transition-colors bg-white">
+                                    <div>
+                                        <p className="font-bold text-gray-800">{q.question}</p>
+                                        <div className="flex gap-2 text-xs mt-1">
+                                            <span className="bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md">{q.category}</span>
+                                            <span className="bg-yellow-100 text-yellow-700 px-2 py-1 rounded-md">مستوى {q.difficulty}</span>
+                                            <span className="text-green-600 font-bold px-2 py-1">الجواب: {q.answer}</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => { setFormData({ ...q, options: q.options || ['', '', '', ''] }); setEditMode(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Edit width="18" height="18" /></button>
+                                        <button onClick={() => handleDelete(q.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash width="18" height="18" /></button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // 2. Proverbs Admin
+        const ProverbsAdmin = () => {
+            const [proverbs, setProverbs] = useState([]);
+            const [formData, setFormData] = useState({ id: null, content: '' });
+            const [editMode, setEditMode] = useState(false);
+
+            useEffect(() => { load(); }, []);
+            const load = () => fetch('/api/proverbs').then(r => r.json()).then(setProverbs);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                const url = formData.id ? `/api/proverbs/${formData.id}` : '/api/proverbs';
+                const method = formData.id ? 'PUT' : 'POST';
+                await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                setEditMode(false); load();
+                setFormData({ id: null, content: '' });
+            };
+
+            const handleDelete = async (id) => {
+                if (confirm('حذف المثل؟')) { await fetch(`/api/proverbs/${id}`, { method: 'DELETE' }); load(); }
+            };
+
+            return (
+                <div>
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-xl font-bold text-gray-700">أمثال "ولا كلمة" ({proverbs.length})</h3>
+                        <button onClick={() => { setEditMode(true); setFormData({ id: null, content: '' }); }} className="bg-yellow-500 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-yellow-600">+ مثل جديد</button>
+                    </div>
+
+                    {editMode ? (
+                        <form onSubmit={handleSubmit} className="max-w-xl mx-auto space-y-4 bg-gray-50 p-6 rounded-2xl border">
+                            <input className="w-full p-4 border rounded-xl text-lg font-bold" placeholder="نص المثل" value={formData.content} onChange={e => setFormData({ ...formData, content: e.target.value })} required />
+                            <div className="flex gap-4">
+                                <button className="flex-1 bg-yellow-500 text-white py-3 rounded-xl font-bold">حفظ</button>
+                                <button type="button" onClick={() => setEditMode(false)} className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-bold">إلغاء</button>
+                            </div>
+                        </form>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {proverbs.map(p => (
+                                <div key={p.id} className="p-4 border rounded-xl bg-white hover:shadow-md transition-all flex justify-between items-start group relative">
+                                    <p className="font-bold text-lg text-gray-800 leading-relaxed">"{p.content}"</p>
+                                    <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity absolute top-2 left-2 bg-white/90 p-1 rounded-lg shadow-sm">
+                                        <button onClick={() => { setFormData(p); setEditMode(true); }} className="text-blue-500 bg-blue-50 p-1 rounded hover:bg-blue-100"><Edit width="16" height="16" /></button>
+                                        <button onClick={() => handleDelete(p.id)} className="text-red-500 bg-red-50 p-1 rounded hover:bg-red-100"><Trash width="16" height="16" /></button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // 3. Words Admin
+        const WordsAdmin = () => {
+            const [words, setWords] = useState([]);
+            const [formData, setFormData] = useState({ id: null, category: '', content: '' });
+            const [editMode, setEditMode] = useState(false);
+
+            useEffect(() => { load(); }, []);
+            const load = () => fetch('/api/words').then(r => r.json()).then(setWords);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                const url = formData.id ? `/api/words/${formData.id}` : '/api/words';
+                await fetch(url, { method: formData.id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                setEditMode(false); load();
+                setFormData({ id: null, category: '', content: '' });
+            };
+
+            const handleDelete = async (id) => { if (confirm('حذف؟')) { await fetch(`/api/words/${id}`, { method: 'DELETE' }); load(); } };
+
+            return (
+                <div>
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-xl font-bold text-gray-700">كلمات "أيش الكلمة" ({words.length})</h3>
+                        <button onClick={() => { setEditMode(true); setFormData({ id: null, category: '', content: '' }); }} className="bg-blue-500 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-600">+ كلمة جديدة</button>
+                    </div>
+
+                    {editMode ? (
+                        <form onSubmit={handleSubmit} className="max-w-xl mx-auto space-y-4 bg-gray-50 p-6 rounded-2xl border">
+                            <input className="w-full p-3 border rounded-xl" placeholder="التصنيف (مثال: حيوانات)" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} required />
+                            <input className="w-full p-3 border rounded-xl text-lg font-bold" placeholder="الكلمة" value={formData.content} onChange={e => setFormData({ ...formData, content: e.target.value })} required />
+                            <div className="flex gap-4">
+                                <button className="flex-1 bg-blue-500 text-white py-3 rounded-xl font-bold">حفظ</button>
+                                <button type="button" onClick={() => setEditMode(false)} className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-bold">إلغاء</button>
+                            </div>
+                        </form>
+                    ) : (
+                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                            {words.map(w => (
+                                <div key={w.id} className="p-3 border rounded-xl bg-white text-center hover:shadow-md transition-all relative group">
+                                    <span className="text-xs text-gray-400 block mb-1">{w.category}</span>
+                                    <p className="font-bold text-gray-800">{w.content}</p>
+                                    <div className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                                        <button onClick={() => { setFormData(w); setEditMode(true); }} className="text-blue-500 bg-blue-50 p-1 rounded-full"><Edit width="12" height="12" /></button>
+                                        <button onClick={() => handleDelete(w.id)} className="text-red-500 bg-red-50 p-1 rounded-full"><Trash width="12" height="12" /></button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- HOME / HUB COMPONENT ---
+        const Home = ({ setView }) => {
+            return (
+                <div className="max-w-6xl mx-auto py-20 px-4 animate-fade-in text-center">
+                    <header className="mb-20 space-y-6 relative z-10">
+                        <div className="inline-block p-6 bg-indigo-600 rounded-[2rem] shadow-2xl shadow-indigo-300 transform -rotate-3 mb-4 animate-bounce"><Trophy className="text-white w-16 h-16" /></div>
+                        <h1 className="text-6xl md:text-8xl font-black text-slate-900 tracking-tighter drop-shadow-sm">منصة الألعاب</h1>
+                        <p className="text-2xl text-slate-500 font-medium max-w-2xl mx-auto">اختر تحديك المفضل</p>
+                    </header>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 relative z-10 text-right">
+                        {/* Quiz Game */}
+                        <div onClick={() => setView('quiz')} className="bg-white rounded-[2.5rem] p-10 shadow-xl border-4 border-transparent hover:border-indigo-500 cursor-pointer group transition-all hover:-translate-y-2 hover:shadow-2xl relative overflow-hidden">
+                            <div className="absolute top-0 right-0 bg-yellow-400 text-yellow-900 text-xs font-black px-8 py-1 transform rotate-45 translate-x-4 translate-y-4 shadow-sm z-20">مميز</div>
+                            <div className="absolute top-0 left-0 w-full h-3 bg-indigo-500"></div>
+                            <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-transform shadow-inner"><Trophy width="40" height="40" /></div>
+                            <h3 className="text-3xl font-black text-slate-800 mb-3">المسابقة الكبرى</h3>
+                            <p className="text-slate-500 text-base leading-relaxed mb-8 font-medium">سؤال وجواب، فرق وتحدي.</p>
+                            <span className="inline-flex items-center gap-3 text-indigo-600 font-black bg-indigo-50 px-6 py-3 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-colors text-lg">ابدأ اللعب <Play width="20" height="20" /></span>
+                        </div>
+
+                        {/* Heads Up Game */}
+                        <div onClick={() => setView('headsup')} className="bg-slate-900 text-white rounded-[2.5rem] p-10 shadow-xl border-4 border-transparent hover:border-yellow-500 cursor-pointer group transition-all hover:-translate-y-2 hover:shadow-2xl relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-3 bg-yellow-500"></div>
+                            <div className="w-20 h-20 bg-slate-800 text-yellow-500 rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-transform border border-slate-700"><Smartphone width="40" height="40" /></div>
+                            <h3 className="text-3xl font-black mb-3">أيش الكلمة؟</h3>
+                            <p className="text-slate-400 text-base leading-relaxed mb-8 font-medium">لعبة التجمعات: حط الجوال على جبهتك وخمن!</p>
+                            <span className="inline-flex items-center gap-3 text-yellow-500 font-black bg-slate-800 px-6 py-3 rounded-2xl group-hover:bg-yellow-500 group-hover:text-slate-900 transition-colors text-lg">العب الآن <Play width="20" height="20" /></span>
+                        </div>
+
+                        {/* Wala Kilma Game Card */}
+                        <div onClick={() => setView('wala-kilma')} className="bg-white rounded-[2.5rem] p-10 shadow-xl border-4 border-transparent hover:border-yellow-600 cursor-pointer group transition-all hover:-translate-y-2 hover:shadow-2xl relative overflow-hidden">
+                            <div className="absolute top-0 right-0 bg-red-500 text-white text-xs font-black px-8 py-1 transform rotate-45 translate-x-4 translate-y-4 shadow-sm z-20">جديد</div>
+                            <div className="absolute top-0 left-0 w-full h-3 bg-yellow-600"></div>
+                            <div className="w-20 h-20 bg-yellow-50 text-yellow-600 rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-transform"><span className="text-4xl">🤫</span></div>
+                            <h3 className="text-3xl font-black text-slate-800 mb-3">ولا كلمة</h3>
+                            <p className="text-slate-500 text-base leading-relaxed mb-8 font-medium">أمثال عمانية بدون كلام. مين يفهمك؟</p>
+                            <span className="inline-flex items-center gap-3 text-yellow-600 font-black bg-yellow-50 px-6 py-3 rounded-2xl group-hover:bg-yellow-600 group-hover:text-white transition-colors text-lg">يلا نمثل <Play width="20" height="20" /></span>
+                        </div>
+
+                        {/* Memory Game Card */}
+                        <div onClick={() => setView('memory')} className="bg-slate-50 text-slate-800 rounded-[2.5rem] p-10 shadow-xl border-4 border-slate-200 hover:border-green-500 cursor-pointer group transition-all hover:-translate-y-2 relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-3 bg-green-500"></div>
+                            <div className="w-20 h-20 bg-white text-green-500 rounded-2xl flex items-center justify-center mb-8 border border-slate-100 group-hover:scale-110 transition-transform"><Dices width="40" height="40" /></div>
+                            <h3 className="text-3xl font-black mb-3">تحدي الذاكرة</h3>
+                            <p className="text-slate-500 text-base leading-relaxed mb-8 font-medium">فرق وتحدي ألوان. مين ذاكرته أقوى؟</p>
+                            <span className="inline-flex items-center gap-3 text-white font-black bg-green-500 px-6 py-3 rounded-2xl group-hover:bg-green-600 transition-colors text-lg">ابدأ اللعب <Play width="20" height="20" /></span>
+                        </div>
+
+                        {/* Admin Card */}
+                        <div onClick={() => setView('admin')} className="bg-white rounded-[2.5rem] p-10 shadow-xl border-4 border-dashed border-gray-200 hover:border-gray-400 cursor-pointer group transition-all hover:-translate-y-2 relative overflow-hidden">
+                            <div className="w-20 h-20 bg-gray-100 text-gray-400 rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-transform"><Database width="40" height="40" /></div>
+                            <h3 className="text-3xl font-black text-gray-400 mb-3">لوحة التحكم</h3>
+                            <p className="text-gray-400 text-base leading-relaxed mb-8 font-medium">إدارة الأسئلة والمحتوى.</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        function App() {
+            const [currentView, setCurrentView] = useState('home');
+            return (
+                <div dir="rtl" className="antialiased min-h-screen">
+                    {currentView === 'home' && <Home setView={setCurrentView} />}
+                    {currentView === 'quiz' && <QuizGame onExit={() => setCurrentView('home')} />}
+                    {currentView === 'headsup' && <HeadsUpGame onExit={() => setCurrentView('home')} />}
+                    {currentView === 'wala-kilma' && <WalaKilmaGame onExit={() => setCurrentView('home')} />}
+                    {currentView === 'memory' && <MemoryGame onExit={() => setCurrentView('home')} />}
+                    {currentView === 'admin' && <AdminPanel onExit={() => setCurrentView('home')} />}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+
+</html>

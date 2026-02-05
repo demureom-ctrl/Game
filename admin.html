@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>إدارة الأسئلة</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 p-6 font-sans">
+  <div class="max-w-4xl mx-auto bg-white p-6 rounded-xl shadow-lg">
+    <h1 class="text-2xl font-bold mb-4">لوحة إدارة الأسئلة</h1>
+
+    <section class="mb-6">
+      <h2 class="font-bold mb-2">أضف سؤالاً جديداً</h2>
+      <form id="addForm" class="grid grid-cols-1 gap-2">
+        <input id="category" placeholder="التصنيف" class="p-2 border rounded" />
+        <input id="difficulty" type="number" placeholder="الصعوبة (1-5)" class="p-2 border rounded" />
+        <input id="question" placeholder="نص السؤال" class="p-2 border rounded" />
+        <input id="answer" placeholder="الإجابة الصحيحة" class="p-2 border rounded" />
+        <input id="options" placeholder="الخيارات مفصولة بفواصل (اختياري)" class="p-2 border rounded" />
+        <div class="flex gap-2">
+          <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded">أضف</button>
+          <button type="button" id="refreshBtn" class="bg-gray-100 px-4 py-2 rounded">تحديث القائمة</button>
+        </div>
+      </form>
+    </section>
+
+    <section>
+      <h2 class="font-bold mb-2">قائمة الأسئلة</h2>
+      <div id="list" class="space-y-2"></div>
+    </section>
+  </div>
+
+  <script>
+    async function listQuestions(){
+      const res = await fetch('/api/questions');
+      const data = await res.json();
+      const el = document.getElementById('list');
+      el.innerHTML = '';
+      data.forEach(q => {
+        const div = document.createElement('div');
+        div.className = 'p-3 border rounded flex justify-between gap-4 items-start';
+        div.innerHTML = `<div class="flex-1"><div class="font-bold">${q.category} — مستوى ${q.difficulty} — (#${q.id})</div><div class="text-sm">${q.question}</div><div class="text-xs text-green-700">الإجابة: ${q.answer}</div></div>`;
+        const actions = document.createElement('div');
+        actions.className = 'flex gap-2';
+        const del = document.createElement('button'); del.className='px-3 py-1 bg-red-100 text-red-600 rounded'; del.textContent='حذف';
+        del.onclick = async ()=>{ if(!confirm('حذف؟')) return; await fetch('/api/questions/'+q.id, {method:'DELETE'}); listQuestions(); };
+        const edit = document.createElement('button'); edit.className='px-3 py-1 bg-yellow-100 text-yellow-700 rounded'; edit.textContent='تعديل';
+        edit.onclick = ()=> openEdit(q);
+        actions.appendChild(edit); actions.appendChild(del);
+        div.appendChild(actions);
+        el.appendChild(div);
+      });
+    }
+
+    function openEdit(q){
+      const category = prompt('التصنيف', q.category);
+      if (category === null) return;
+      const difficulty = prompt('الصعوبة (1-5)', q.difficulty);
+      if (difficulty === null) return;
+      const question = prompt('نص السؤال', q.question);
+      if (question === null) return;
+      const answer = prompt('الإجابة', q.answer);
+      if (answer === null) return;
+      const options = prompt('الخيارات مفصولة بفواصل', (q.options||[]).join(','));
+      fetch('/api/questions/'+q.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({category,difficulty:parseInt(difficulty),question,answer,options: options?options.split(',').map(s=>s.trim()):[]})}).then(()=>listQuestions());
+    }
+
+    document.getElementById('addForm').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const category = document.getElementById('category').value;
+      const difficulty = parseInt(document.getElementById('difficulty').value||1);
+      const question = document.getElementById('question').value;
+      const answer = document.getElementById('answer').value;
+      const options = document.getElementById('options').value.split(',').map(s=>s.trim()).filter(Boolean);
+      await fetch('/api/questions', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({category,difficulty,question,answer,options})});
+      document.getElementById('addForm').reset();
+      listQuestions();
+    });
+
+    document.getElementById('refreshBtn').addEventListener('click', listQuestions);
+    listQuestions();
+  </script>
+</body>
+</html>
